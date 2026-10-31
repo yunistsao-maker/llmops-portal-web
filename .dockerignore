@@ -1,0 +1,4 @@
+# The image needs only nginx/ and site/.
+*
+!nginx/
+!site/

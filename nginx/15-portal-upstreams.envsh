@@ -1,0 +1,42 @@
+#!/bin/sh
+# portal-web start-up (sourced by /docker-entrypoint.sh before the templates are rendered).
+# 1. The root filesystem is read-only: the rendered config goes to /tmp (an emptyDir in Kubernetes).
+# 2. NGINX_RESOLVER: DNS server(s) nginx uses to find the API services per request (default: /etc/resolv.conf).
+# 3. nginx's resolver ignores DNS search domains, so a bare service name ("content-api") gets the pod's
+#    Kubernetes search domain (<namespace>.svc.<cluster-domain>). Set NGINX_UPSTREAM_DOMAIN to choose the
+#    domain yourself, or to "-" to leave names untouched.
+mkdir -p "${NGINX_ENVSUBST_OUTPUT_DIR:-/tmp/nginx/conf.d}"
+
+if [ -z "${NGINX_RESOLVER:-}" ]; then
+  NGINX_RESOLVER=$(awk 'BEGIN{ORS=" "} $1=="nameserver" {if ($2 ~ ":") {print "["$2"]"} else {print $2}}' /etc/resolv.conf 2>/dev/null)
+  NGINX_RESOLVER="${NGINX_RESOLVER% }"
+fi
+[ -n "${NGINX_RESOLVER}" ] || NGINX_RESOLVER=127.0.0.11
+export NGINX_RESOLVER
+
+portal_domain="${NGINX_UPSTREAM_DOMAIN:-}"
+if [ -z "$portal_domain" ]; then
+  portal_domain=$(awk '$1=="search" {for (i = 2; i <= NF; i++) if ($i ~ /\.svc\./) {print $i; exit}}' /etc/resolv.conf 2>/dev/null)
+fi
+[ "$portal_domain" = "-" ] && portal_domain=""
+
+portal_qualify() {
+  url="${1%/}"
+  scheme="${url%%://*}"; rest="${url#*://}"
+  hostport="${rest%%/*}"
+  host="${hostport%%:*}"
+  port=""; [ "$host" != "$hostport" ] && port=":${hostport#*:}"
+  case "$host" in
+    ""|*.*|localhost|\[*) printf '%s' "$url" ;;
+    *) if [ -n "$portal_domain" ]; then printf '%s://%s.%s%s' "$scheme" "$host" "$portal_domain" "$port"; else printf '%s' "$url"; fi ;;
+  esac
+}
+for portal_var in CONTENT_API_URL ASSISTANT_API_URL REQUEST_API_URL TESTS_API_URL; do
+  eval "portal_val=\${$portal_var:-}"
+  if [ -n "$portal_val" ]; then
+    portal_val=$(portal_qualify "$portal_val")
+    export "$portal_var=$portal_val"
+    [ -n "${NGINX_ENTRYPOINT_QUIET_LOGS:-}" ] || echo "portal-web: $portal_var=$portal_val"
+  fi
+done
+unset portal_var portal_val portal_domain

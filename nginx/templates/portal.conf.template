@@ -1,0 +1,80 @@
+# Rendered by the image's entrypoint (envsubst) into ${NGINX_ENVSUBST_OUTPUT_DIR}; only the variables in
+# NGINX_ENVSUBST_FILTER are replaced, so nginx's own $variables stay as they are.
+# Upstreams are resolved per request (resolver + variables): nginx starts even when a service is missing,
+# and only that path answers 502 until it appears.
+resolver ${NGINX_RESOLVER} valid=30s ipv6=off;
+resolver_timeout 5s;
+
+map $http_x_forwarded_proto $portal_forwarded_proto {
+    default $http_x_forwarded_proto;
+    ""      $scheme;
+}
+
+server {
+    listen ${PORT} default_server;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+    absolute_redirect off;
+    client_max_body_size 64k;
+    error_page 413 = @too_large;
+
+    include /etc/nginx/snippets/security-headers.conf;
+
+    location = /healthz { access_log off; default_type application/json; return 200 '{"status":"ok"}'; }
+    location = /readyz  { access_log off; default_type application/json; return 200 '{"status":"ready"}'; }
+
+    # ---- APIs (paths are passed through unchanged)
+    location /api/content/ {
+        set $upstream "${CONTENT_API_URL}";
+        proxy_pass $upstream;
+        include /etc/nginx/snippets/proxy.conf;
+        proxy_read_timeout 30s;
+    }
+    location = /api/chat {
+        set $upstream "${ASSISTANT_API_URL}";
+        proxy_pass $upstream;
+        include /etc/nginx/snippets/proxy.conf;
+        proxy_read_timeout 120s;
+    }
+    location /api/assist/ {
+        set $upstream "${ASSISTANT_API_URL}";
+        proxy_pass $upstream;
+        include /etc/nginx/snippets/proxy.conf;
+        proxy_read_timeout 120s;
+    }
+    location ~ ^/api/(requests|subscriptions)(/|$) {
+        set $upstream "${REQUEST_API_URL}";
+        proxy_pass $upstream;
+        include /etc/nginx/snippets/proxy.conf;
+        proxy_read_timeout 30s;
+    }
+    location ~ ^/api/tests(/|$) {
+        set $upstream "${TESTS_API_URL}";
+        proxy_pass $upstream;
+        include /etc/nginx/snippets/proxy.conf;
+        proxy_read_timeout 30s;
+    }
+    location /api/ {
+        default_type application/json;
+        return 404 '{"error":{"code":"not_found","message":"no such API path"}}';
+    }
+    location @upstream_down {
+        default_type application/json;
+        return 502 '{"error":{"code":"upstream_unreachable","message":"the service behind this path is not reachable"}}';
+    }
+    location @too_large {
+        default_type application/json;
+        return 413 '{"error":{"code":"too_large","message":"request body too large"}}';
+    }
+
+    # ---- the page (hash routes, so every other path is the page itself)
+    location /assets/ {
+        expires -1;
+        try_files $uri =404;
+    }
+    location / {
+        expires -1;
+        try_files $uri /index.html;
+    }
+}

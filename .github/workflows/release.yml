@@ -1,0 +1,94 @@
+# main: push portal-web:<git sha> to ECR (SBOM, provenance, cosign signature with the AWS KMS key; no public log)
+# and open an auto-merge PR in llmops-deploy bumping envs/aws-test. v* tags also push portal-web:<tag> for
+# on-prem promotion. Needs variables AWS_REGION, ECR_REGISTRY, AWS_CI_PUSH_ROLE_ARN, COSIGN_KMS_KEY and
+# secrets CI_APP_ID / CI_APP_PRIVATE_KEY.
+name: release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ECR: ${{ vars.ECR_REGISTRY }}
+  DEPLOY_REPO: llmops-deploy
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_CI_PUSH_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-buildx-action@v3
+      - uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: v3.0.5
+      - name: Image tags
+        id: tags
+        run: |
+          tags="$ECR/llmops/portal-web:${GITHUB_SHA}"
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then tags="$tags,$ECR/llmops/portal-web:${GITHUB_REF_NAME}"; fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          provenance: mode=max
+          sbom: true
+      - name: Sign
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes --key "${{ vars.COSIGN_KMS_KEY }}" --tlog-upload=false \
+            --use-signing-config=false --new-bundle-format=false "$ECR/llmops/portal-web@$DIGEST"
+
+  deploy-pr:
+    needs: image
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: app
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ env.DEPLOY_REPO }}
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.DEPLOY_REPO }}
+          token: ${{ steps.app.outputs.token }}
+      - name: Bump portal-web on aws-test and open an auto-merge PR
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          short=${GITHUB_SHA::12}
+          branch="portal-web/$short"
+          python3 scripts/set_images.py envs/aws-test --registry "$ECR" --tag "$GITHUB_SHA" --only portal-web
+          git config user.name "llmops-ci[bot]"
+          git config user.email "llmops-ci@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add envs/aws-test/images
+          if git diff --cached --quiet; then echo "nothing changed"; exit 0; fi
+          git commit -m "portal-web $short on aws-test"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" --label automerge --title "portal-web $short → aws-test" \
+            --body "Image ${ECR}/llmops/portal-web:${GITHUB_SHA} (signed), from ${GITHUB_REPOSITORY}@${GITHUB_SHA}."
+          gh pr merge "$branch" --auto --squash

@@ -1,0 +1,13 @@
+{
+  "repo": "yunistsao-maker/llmops-platform",
+  "ref": "main",
+  "commit": null,
+  "files": {
+    "fixtures/portal-view.sample.json": "ff14cb9a2b2ed52f507ec7da35d4597fec1275d96869f8c2966c3d65c1447030",
+    "openapi/assistant-api.json": "285a62a213b4cf0aa0ce3276f30e09b1fc2858851ebdbb6d7948a191d0a3f64b",
+    "openapi/content-api.json": "f79d1d33859b8832c101d4a886ea1c6caaf8053222a7350264930c01973caa88",
+    "openapi/request-api.json": "e231b80e91d76fdba338c430affd070e9dd2b0b2331f9f335ef550fbcf49b833",
+    "openapi/test-orchestrator.json": "ad47c1b06c27d70f2200e924a71a066f2413c15b1a689ec00b6df95260408b0d",
+    "schemas/request.schema.json": "acf9e4eb2ebd1fbcf57f8a17d5d84fb3a2bb9f90f20c6f2aa19c3c9d751aeacd"
+  }
+}

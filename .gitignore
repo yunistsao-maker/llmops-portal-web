@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+_platform/
+test-results/
+shots/
+.DS_Store

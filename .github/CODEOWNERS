@@ -1,0 +1,5 @@
+*                      @yunistsao-maker/llmops-web-team
+/nginx/                @yunistsao-maker/llmops-web-team @yunistsao-maker/security-team
+/Dockerfile            @yunistsao-maker/llmops-web-team @yunistsao-maker/security-team
+/contracts/            @yunistsao-maker/llmops-web-team @yunistsao-maker/llmops-platform-team
+/.github/              @yunistsao-maker/llmops-web-team @yunistsao-maker/security-team

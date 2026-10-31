@@ -1,0 +1,119 @@
+# Pull requests and main: static checks, lint, contract check, the browser check against the pinned back-end
+# version, image build + Trivy. Nothing is pushed here (release.yml does that on main).
+# Needs secrets CI_APP_ID / CI_APP_PRIVATE_KEY (read access to llmops-platform). Renovate pins actions to SHAs.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  PLATFORM_REPO: llmops-platform
+  PLAYWRIGHT_VERSION: 1.63.0
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/setup-node@v4
+        with: {node-version: "22"}
+      - run: pip install pytest && python -m pytest -q tests/test_static.py
+      - name: ESLint
+        run: npm install --no-save --no-audit --no-fund eslint@9 @eslint/js@9 globals@15 && npx eslint site/assets tests
+      - run: for f in site/assets/*.js; do node --check "$f"; done
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/check_contracts.py
+      - id: ref
+        run: echo "ref=$(python3 -c 'import json; print(json.load(open("contracts/VERSION.json"))["ref"])')" >> "$GITHUB_OUTPUT"
+      - uses: actions/create-github-app-token@v1
+        id: app
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ env.PLATFORM_REPO }}
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.PLATFORM_REPO }}
+          ref: ${{ steps.ref.outputs.ref }}
+          token: ${{ steps.app.outputs.token }}
+          path: _platform
+      - run: python3 scripts/check_contracts.py --against _platform
+
+  browser:
+    needs: [static, contracts]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: ref
+        run: echo "ref=$(python3 -c 'import json; print(json.load(open("contracts/VERSION.json"))["ref"])')" >> "$GITHUB_OUTPUT"
+      - uses: actions/create-github-app-token@v1
+        id: app
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ env.PLATFORM_REPO }}
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.PLATFORM_REPO }}
+          ref: ${{ steps.ref.outputs.ref }}
+          token: ${{ steps.app.outputs.token }}
+          path: _platform
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/setup-node@v4
+        with: {node-version: "22"}
+      - name: Stub stack dependencies (real content-api and assistant-api code of that version)
+        run: >-
+          pip install jsonschema -r _platform/libs/llmops-common/requirements.in
+          -r _platform/libs/llmops-common/requirements-fastapi.in
+      - name: Chromium
+        run: |
+          npm install --no-save --no-audit --no-fund "playwright@$PLAYWRIGHT_VERSION"
+          npx playwright install --with-deps chromium
+      - run: docker build -t llmops/portal-web:ci .
+      - name: Browser check
+        env:
+          LLMOPS_PLATFORM_DIR: ${{ github.workspace }}/_platform
+        run: |
+          python3 tests/stub_stack.py > stub.log 2>&1 &
+          for _ in $(seq 1 60); do grep -q '"content"' stub.log && break; sleep 1; done
+          docker run -d --name web --network host --read-only --tmpfs /tmp -e PORT=18080 \
+            -e CONTENT_API_URL=http://127.0.0.1:18101 -e ASSISTANT_API_URL=http://127.0.0.1:18102 \
+            -e REQUEST_API_URL=http://127.0.0.1:18103 llmops/portal-web:ci
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:18080/healthz > /dev/null && break; sleep 1; done
+          PORTAL_URL=http://127.0.0.1:18080 node tests/browser-check.cjs
+      - if: failure()
+        run: docker logs web || true; cat stub.log || true
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: llmops/portal-web:ci
+      - name: Trivy (fixable HIGH / CRITICAL fail the build)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: llmops/portal-web:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
