@@ -1,6 +1,7 @@
 # Pull requests and main: static checks, lint, contract check, the browser check against the pinned back-end
 # version, image build + Trivy. Nothing is pushed here (release.yml does that on main).
-# Needs secrets CI_APP_ID / CI_APP_PRIVATE_KEY (read access to llmops-platform). Renovate pins actions to SHAs.
+# Needs secrets CI_APP_ID / CI_APP_PRIVATE_KEY (read access to llmops-platform); without them the check against
+# llmops-platform and the browser check are skipped with a notice. Renovate pins actions to SHAs.
 name: ci
 
 on:
@@ -31,12 +32,26 @@ jobs:
 
   contracts:
     runs-on: ubuntu-latest
+    outputs:
+      platform: ${{ steps.app_check.outputs.ok }}
+    env:
+      HAS_APP: ${{ secrets.CI_APP_ID != '' }}
     steps:
       - uses: actions/checkout@v4
       - run: python3 scripts/check_contracts.py
+      - id: app_check
+        run: |
+          if [ "$HAS_APP" = "true" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CI_APP_ID / CI_APP_PRIVATE_KEY are not set: skipping the check against llmops-platform and the browser check."
+          fi
       - id: ref
+        if: steps.app_check.outputs.ok == 'true'
         run: echo "ref=$(python3 -c 'import json; print(json.load(open("contracts/VERSION.json"))["ref"])')" >> "$GITHUB_OUTPUT"
       - uses: actions/create-github-app-token@v1
+        if: steps.app_check.outputs.ok == 'true'
         id: app
         with:
           app-id: ${{ secrets.CI_APP_ID }}
@@ -44,15 +59,18 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ env.PLATFORM_REPO }}
       - uses: actions/checkout@v4
+        if: steps.app_check.outputs.ok == 'true'
         with:
           repository: ${{ github.repository_owner }}/${{ env.PLATFORM_REPO }}
           ref: ${{ steps.ref.outputs.ref }}
           token: ${{ steps.app.outputs.token }}
           path: _platform
-      - run: python3 scripts/check_contracts.py --against _platform
+      - if: steps.app_check.outputs.ok == 'true'
+        run: python3 scripts/check_contracts.py --against _platform
 
   browser:
     needs: [static, contracts]
+    if: needs.contracts.outputs.platform == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -1,7 +1,7 @@
 # main: push portal-web:<git sha> to ECR (SBOM, provenance, cosign signature with the AWS KMS key; no public log)
 # and open an auto-merge PR in llmops-deploy bumping envs/aws-test. v* tags also push portal-web:<tag> for
 # on-prem promotion. Needs variables AWS_REGION, ECR_REGISTRY, AWS_CI_PUSH_ROLE_ARN, COSIGN_KMS_KEY and
-# secrets CI_APP_ID / CI_APP_PRIVATE_KEY.
+# secrets CI_APP_ID / CI_APP_PRIVATE_KEY. Until AWS_CI_PUSH_ROLE_ARN is set, every job here is skipped.
 name: release
 
 on:
@@ -22,6 +22,7 @@ env:
 
 jobs:
   image:
+    if: vars.AWS_CI_PUSH_ROLE_ARN != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
