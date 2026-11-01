@@ -7,8 +7,10 @@ ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30-alpine@sha256:f5116ed4606f3eb01
 
 FROM ${NGINX_IMAGE}
 USER root
-# the stock example site and server block are replaced by ours
-RUN rm -rf /usr/share/nginx/html/* /etc/nginx/conf.d/default.conf
+# the stock example site and server block are replaced by ours; curl (and libcurl, brotli-libs) is unused here
+# (k8s probes are httpGet), so it goes: less to patch when the base image lags behind Alpine fixes
+RUN rm -rf /usr/share/nginx/html/* /etc/nginx/conf.d/default.conf \
+ && apk del --no-network curl
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/snippets/ /etc/nginx/snippets/
 COPY nginx/templates/ /etc/nginx/templates/
