@@ -3,14 +3,13 @@
 # Build from the repo root:  docker build -t llmops/portal-web:dev .
 #                       or:  tools/docker-build.sh portal-web
 # Nothing is downloaded at build time (no build CA needed).
-ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+# alpine-slim: nginx and its libraries only (no curl, no extra modules): nothing here needs more
+ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30-alpine-slim@sha256:5d8bb9437d74a600ec5dbf90c035451c724dc33eac8d3a71078f6f8612c345f6
 
 FROM ${NGINX_IMAGE}
 USER root
-# the stock example site and server block are replaced by ours; curl (and libcurl, brotli-libs) is unused here
-# (k8s probes are httpGet), so it goes: less to patch when the base image lags behind Alpine fixes
-RUN rm -rf /usr/share/nginx/html/* /etc/nginx/conf.d/default.conf \
- && apk del --no-network curl
+# the stock example site and server block are replaced by ours
+RUN rm -rf /usr/share/nginx/html/* /etc/nginx/conf.d/default.conf
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/snippets/ /etc/nginx/snippets/
 COPY nginx/templates/ /etc/nginx/templates/

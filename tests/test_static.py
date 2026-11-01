@@ -55,5 +55,5 @@ def test_nginx_template():
 
 def test_dockerfile_pins_base_image():
     dockerfile = (HERE / "Dockerfile").read_text(encoding="utf-8")
-    assert re.search(r"nginx-unprivileged:\d+\.\d+-alpine@sha256:[0-9a-f]{64}", dockerfile)  # any version, always by digest
+    assert re.search(r"nginx-unprivileged:\d+\.\d+-alpine(-slim)?@sha256:[0-9a-f]{64}", dockerfile)  # any version, always by digest
     assert "USER 101:101" in dockerfile
