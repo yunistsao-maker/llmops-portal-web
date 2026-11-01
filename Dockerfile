@@ -3,7 +3,8 @@
 # Build from the repo root:  docker build -t llmops/portal-web:dev .
 #                       or:  tools/docker-build.sh portal-web
 # Nothing is downloaded at build time (no build CA needed).
-ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.27-alpine@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0
+# alpine-slim: nginx and its libraries only (no curl, no extra modules): nothing here needs more
+ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30-alpine-slim@sha256:5d8bb9437d74a600ec5dbf90c035451c724dc33eac8d3a71078f6f8612c345f6
 
 FROM ${NGINX_IMAGE}
 USER root
