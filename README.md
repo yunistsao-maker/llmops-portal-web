@@ -52,7 +52,7 @@ returned id, status and gates (the page still previews gates, monthly cost and n
 No inline scripts or styles (strict CSP), no web fonts (the CSS font stacks fall back to local fonts), no
 `window.claude`.
 
-**Kind:** service (nginx `nginxinc/nginx-unprivileged:1.27-alpine`, pinned by digest), `PORT` 8080.
+**Kind:** service (nginx `nginxinc/nginx-unprivileged:1.30-alpine`, pinned by digest), `PORT` 8080.
 Stateless; run 2+ replicas.
 
 ## Routes
